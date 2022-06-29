@@ -18,23 +18,19 @@
    (let [db {:dbtype "h2:mem"
              :user "sa"
              :dbname name
-             ;;"TIME ZONE" "UTC"
-             }]
+             "TIME ZONE" "UTC"}]
      (next/execute! db (q/concat ["CREATE TABLE events"]
                                  (sql/parens (apply sql/list (map (fn [[col type]]
                                                                     [(str col " " type)])
-                                                                  (merge additional-columns
-                                                                         {"time" "timestamp not null"
-                                                                          "event" "varchar not null"}))))))
+                                                                  (merge {"time" "timestamp not null"
+                                                                          "event" "varchar not null"}
+                                                                         additional-columns))))))
      (next/on-connection [connection db]
                          (f connection)))))
 
 (deftest db-event-source-test
-  (let [ev1 (core/event (Instant/ofEpochSecond 1000001)
-                        "foo")
-        ev2 (core/event (Instant/ofEpochSecond 1000002)
-                        "bar")]
-
+  (let [ev1 (core/event (Instant/ofEpochSecond 1000001) "foo")
+        ev2 (core/event (Instant/ofEpochSecond 1000002) "bar")]
     (with-h2 "db-event-source-test"
       (fn [db]
         (let [src (db/db-event-source db "events")]
@@ -42,6 +38,17 @@
           (core/add-events! src [ev1 ev2])
 
           (is (= [ev1 ev2] (as-seq src))))))))
+
+(deftest db-event-source-auto-time-test
+  (let [ev1 (core/event nil "foo")]
+    (with-h2 "db-event-source-auto-time-test"
+      {"time" "timestamp not null default current_timestamp(3)"}
+      (fn [db]
+        (let [src (db/db-event-source db "events" {:auto-time? true})]
+          (core/add-events! src [ev1])
+
+          (let [ev2 (first (as-seq src))]
+            (is (instance? Instant (core/event-time ev2)))))))))
 
 (deftest db-event-source-edn-test
   (let [ev1 (core/event (Instant/ofEpochSecond 1000001) {:foo :bar})]
@@ -62,20 +69,23 @@
                       (db/add-column "x" (fn [v] (if (= v "foo") 42 0))))]
           (core/add-events! src [ev1])
 
+          (is (= [ev1] (as-seq (-> src
+                                   (db/restrict ["x >= 42"])))))
           (is (= [] (as-seq (-> src
                                 (db/restrict ["x < 42"]))))))))))
 
 (deftest latest-test
-  (let [ev1 (core/event (Instant/ofEpochSecond 1000001)
-                        "foo")
-        ev2 (core/event (Instant/ofEpochSecond 1000002)
-                        "bar")]
-
+  (let [ev1 (core/event (Instant/ofEpochSecond 1000001) "foo")
+        ev2 (core/event (Instant/ofEpochSecond 1000002) "bar")]
     (with-h2 "latest-test"
       (fn [db]
         (let [src (-> (db/db-event-source db "events")
                       (db/latest-only))]
-      
-          (core/add-events! src [ev1 ev2])
 
+          (is (= [] (as-seq src)))
+      
+          (core/add-events! src [ev1])
+          (is (= [ev1] (as-seq src)))
+
+          (core/add-events! src [ev2])
           (is (= [ev2] (as-seq src))))))))

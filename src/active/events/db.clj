@@ -14,7 +14,6 @@
            [java.time Instant]))
 
 (defn- to-db-time ^Timestamp [^Instant t]
-  ;; TODO: to allow nil and use a database default, we would need the literal DEFAULT in the sql - does insert-multi! support this? I fear not :-/
   (Timestamp/from t))
 
 (defn- from-db-time ^Instant [^Timestamp t]
@@ -34,11 +33,17 @@
   (-add-events! [this events]
                 (let [opts (db-event-source-opts this)
                       additional-columns (or (:additional-columns opts) {})
-                      columns (vec (concat ["time" "event"] (keys additional-columns)))
+                      auto-time? (:auto-time? opts)
+                      columns (vec (concat (cond-> ["event"]
+                                             (not auto-time?) (conj "time"))
+                                           (keys additional-columns)))
                       serialize (or (:serialize opts) identity)]
                   (next-sql/insert-multi! (db-event-source-db this) (db-event-source-table this) columns
-                                          (map (apply juxt (comp to-db-time core/event-time) (comp serialize core/event-value)
-                                                      (map #(comp % core/event-value) (vals additional-columns)))
+                                          (map (apply juxt
+                                                      (-> []
+                                                          (conj (comp serialize core/event-value))
+                                                          (cond-> (not auto-time?) (conj (comp to-db-time core/event-time)))
+                                                          (concat (map #(comp % core/event-value) (vals additional-columns)))))
                                                events)
                                           ;; FIXME: quoting opts? Allow to change column names? Opts in general?
                                           )))
@@ -71,10 +76,11 @@
   ;; opts:
   ;; :additional-columns  map {column => (fn [event-value] ...) }
   ;; :where  sql fragment like ["x = ?" 42]
-  ;; :order  "ASC" or "DESC"
+  ;; :order  "ASC" (default) or "DESC"
   ;; :limit  sql fragment added to end of select statement.
-  ;; :serialize  convert event value to a db parameter
-  ;; :deserialize  convert event from from a db result
+  ;; :serialize  convert event value to a db parameter (defaults to identity)
+  ;; :deserialize  convert event from from a db result (defaults to identity)
+  ;; :auto-time?  ignore event time when adding events, assuming the database has a DEFAULT for that column.
   
   (make-db-event-source db table opts))
 
