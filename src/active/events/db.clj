@@ -61,6 +61,10 @@
                  (->> (jdbc/plan db select-stmt conf)
                       (r/map (partial db-event deserialize))))))
 
+(def edn-string-serialization-opts
+  {:serialize pr-str
+   :deserialize edn/read-string})
+
 (defn db-event-source
   "Defines an event source from a database table. The table must have columns named `time` and `value`."
   [db table & [opts]]
@@ -73,10 +77,6 @@
   ;; :deserialize  convert event from from a db result
   
   (make-db-event-source db table opts))
-
-(def edn-serialization-opts
-  {:serialize pr-str
-   :deserialize edn/read-string})
 
 (defn add-column
   "When events are added then add the given column to the INSERT statement, and set its value to `(f event)`."

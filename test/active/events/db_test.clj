@@ -43,10 +43,18 @@
 
           (is (= [ev1 ev2] (as-seq src))))))))
 
-(deftest restict-test
-  (let [ev1 (core/event (Instant/ofEpochSecond 1000001)
-                        "foo")]
+(deftest db-event-source-edn-test
+  (let [ev1 (core/event (Instant/ofEpochSecond 1000001) {:foo :bar})]
+    (with-h2 "db-event-source-edn-test"
+      (fn [db]
+        (let [src (db/db-event-source db "events" db/edn-string-serialization-opts)]
+          (core/add-events! src [ev1])
 
+          (is (= [ev1] (as-seq src))))))))
+
+
+(deftest restict-test
+  (let [ev1 (core/event (Instant/ofEpochSecond 1000001) "foo")]
     (with-h2 "restict-test"
       {"x" "integer"}
       (fn [db]
