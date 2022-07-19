@@ -5,42 +5,66 @@
   (:import [clojure.lang IReduceInit])
   (:refer-clojure :exclude [time]))
 
-(define-record-type Event
+(define-record-type ^:private Event
   {:rtd-record? true}
-  event
-  event?
-  [time event-time ;; java.time.Instant
-   value event-value ;; arbitrary value describing the event
+  make-event
+  really-event?
+  [time really-event-time ;; java.time.Instant
+   value really-event-value ;; arbitrary value describing the event
    ])
 
-(defprotocol EventSource
+(def ^{:arglists '([time value])
+       :doc "Creates an event that happened at the given time (a `java.time.Instant`) and is described by the given arbitrary value."}
+  event make-event)
+
+(def ^{:arglists '([v])
+       :doc "Returns is the given value is an [[event]]."}
+  event? really-event?)
+
+(def ^{:arglists '([event])
+       :doc "Returns the time of the given [[event]]."}
+  event-time really-event-time)
+
+(def ^{:arglists '([event])
+       :doc "Returns the value of the given [[event]]."}
+  event-value really-event-value)
+
+(defprotocol ^:no-doc EventSource
   (-add-events! [this events] "Add a sequence of events to this event source.")
   (-get-events [this] "Get a reducible collection (IReduceInit) of all events of this event source."))
 
-(defrecord ^:private MemoryEventSource [store]
+(define-record-type ^:private MemoryEventSource
+  make-memory-event-source
+  memory-event-source?
+  [store memory-event-source-store]
+  
   EventSource
   (-add-events! [this events]
     ;; OPT: some insertion sort algorithm?
-    (swap! store (comp vec (partial sort-by event-time) concat) events))
+    (swap! (memory-event-source-store this) (comp vec (partial sort-by event-time) concat) events))
   (-get-events [this]
-    @store))
+    @(memory-event-source-store this)))
 
 (defn new-memory-event-source
   "Returns a new event source that holds events in an atom."
   []
-  (MemoryEventSource. (atom [])))
+  (make-memory-event-source (atom [])))
 
-(defrecord ^:private StaticEventSource [events]
+(define-record-type ^:private StaticEventSource
+  make-static-event-source
+  static-event-source?
+  [events static-event-source-events]
+  
   EventSource
   (-add-events! [this events] (throw (ex-info "Cannot add events to a static event source." {})))
-  (-get-events [this] events))
+  (-get-events [this] (static-event-source-events this)))
 
 (defn static-event-source
   "Returns an event source that contains just the given events. Adding
   events to it throws an exception."
   [events]
   (assert (= events (sort-by event-time events)))
-  (StaticEventSource. events))
+  (make-static-event-source events))
 
 
 #_(defn combine-event-sources "Collects events from multiple sources. Insertions are redirected to the last event source." [src1 & more]
@@ -57,14 +81,20 @@
                     (-> (apply concat ((apply juxt (map event-source-get-fn src1))))
                         (sort-by time-sort))))))
 
-(defrecord ^:private MapValuesEventSource [base in out]
+(define-record-type ^:private MapValuesEventSource
+  make-map-values-event-source
+  map-values-event-source?
+  [base map-values-event-source-base
+   in map-values-event-source-in
+   out map-values-events-source-out]
+  
   EventSource
   (-add-events! [this events]
-    (-add-events! base
-                  (map #(lens/overhaul % event-value in) events)))
+    (-add-events! (map-values-event-source-base this)
+                  (map #(lens/overhaul % really-event-value (map-values-event-source-in this)) events)))
   (-get-events [this]
     (->> (-get-events base)
-         (r/map #(lens/overhaul % event-value out)))))
+         (r/map #(lens/overhaul % really-event-value (map-values-events-source-out this))))))
 
 (defn xmap-event-value
   "Returns a new event source that maps `in` over the event before
@@ -75,7 +105,9 @@
   (MapValuesEventSource. src in out))
 
 (defn reduce-events
-  "Retrieve all events from `src` and reduce them into a different form."
+  "Retrieve all events from `src` and reduce them into a different
+  form. Note that if no `init` value is given, then `f` should return
+  an 'empty' value when called with no arguments."
   ([src f init]
    ;; Note: this is slightly different form clojure.core/reduce
    (r/reduce f init (-get-events src)))
@@ -83,18 +115,23 @@
    (r/reduce f (-get-events src))))
 
 (defn add-events!
-  "Add all the given events to `src`."
+  "Adds all the given events to `src`."
   [src events]
   (-add-events! src events))
 
-(defrecord ^:private FilteredEventSource [base pred]
+(define-record-type ^:private FilteredEventSource
+  make-filtered-event-source
+  filtered-event-source?
+  [base filtered-event-source-base
+   pred filtered-event-source-pred]
+  
   EventSource
   (-add-events! [this events]
     (assert (every? pred events))
-    (-add-events! base events))
+    (-add-events! (filtered-event-source-base this) events))
   (-get-events [this]
-    (->> (-get-events base)
-         (r/filter pred))))
+    (->> (-get-events (filtered-event-source-base this))
+         (r/filter (filtered-event-source-pred this)))))
 
 (defn filtered-event-source
   "Returns a new event source, that contains only the events from `src`
