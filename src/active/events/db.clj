@@ -1,9 +1,10 @@
 (ns active.events.db
   (:require [active.events.core :as core]
+            [clojure.string :as string]
             [clojure.core.reducers :as r]
             [clojure.edn :as edn]
+            [clojure.data.json :as json]
             [next.jdbc :as next]
-            [next.jdbc.sql :as next-sql]
             [next.jdbc.result-set :as next-rs]
             [active.jdbc.query :as q]
             [active.jdbc.sql :as sql]
@@ -37,25 +38,39 @@
                       columns (vec (concat (cond-> ["event"]
                                              (not auto-time?) (conj "time"))
                                            (keys additional-columns)))
-                      serialize (or (:serialize opts) identity)]
-                  (next-sql/insert-multi! (db-event-source-db this) (db-event-source-table this) columns
-                                          (map (apply juxt
-                                                      (-> []
-                                                          (conj (comp serialize core/event-value))
-                                                          (cond-> (not auto-time?) (conj (comp to-db-time core/event-time)))
-                                                          (concat (map #(comp % core/event-value) (vals additional-columns)))))
-                                               events)
-                                          ;; FIXME: quoting opts? Allow to change column names? Opts in general?
-                                          )))
+                      serialize (or (:serialize opts) identity)
+                      insert-modifier (or (:insert-modifier opts) identity)]
+
+                  ;; FIXME: quoting opts columns names, table? Allow to change column names? Opts in general?
+                  (let [insert-stmt (q/concat [(str "INSERT INTO " (db-event-source-table this) "(" (string/join ", " columns) ")")]
+                                              ["VALUES ("]
+                                              (insert-modifier ["?"]) ;; first must be the event value column
+                                              [(string/join (repeat (dec (count columns)) ", ?"))]
+                                              [")"])
+                        param-groups (mapv (apply juxt
+                                                  (-> []
+                                                      (conj (comp serialize core/event-value))
+                                                      (cond-> (not auto-time?) (conj (comp to-db-time core/event-time)))
+                                                      (concat (map #(comp % core/event-value) (vals additional-columns)))))
+                                           events)]
+                    (jdbc/execute-batch! (db-event-source-db this) insert-stmt
+                                         param-groups
+                                         ;; ...opts, TODO: batch-size etc.
+                                         ))))
   (-get-events [this]
                (let [opts (db-event-source-opts this)
                      condition (:where opts)
                      order (or (:order opts) "ASC")
                      limit (:limit opts)
                      deserialize (or (:deserialize opts) identity)
+                     select-modifier (or (:select-modifier opts) identity)
                      
                      select-stmt ;; ...should be cached for high performance
-                     (q/concat [(str "SELECT time, event FROM " (db-event-source-table this))]
+                     (q/concat ["SELECT"]
+                               ["time, "]
+                               (select-modifier ["event"])
+                               [(str "FROM " (db-event-source-table this))]
+                               
                                (if condition (q/concat [(str "WHERE")] condition) q/empty)
                                [(str "ORDER BY time " order)]
                                (or limit q/empty))
@@ -66,9 +81,38 @@
                  (->> (jdbc/plan db select-stmt conf)
                       (r/map (partial db-event deserialize))))))
 
-(def edn-string-serialization-opts
+(def ^{:doc "An option map for [[db-event-source]] that can be used to store EDN event values in text/varchar columns."}
+  edn-string-serialization-opts
   {:serialize pr-str
    :deserialize edn/read-string})
+
+(def ^:private insert-json-modifier
+  (fn [expr]
+    (q/by-driver-class-name (fn [cn]
+                              (case cn
+                                "org.h2.Driver" (q/concat expr ["FORMAT JSON"])
+                                "org.postgresql.Driver" (q/concat0 expr ["::json"])
+                                expr)))))
+
+(def ^:private select-json-modifier
+  ;; For some guesswork on what you can do with JSON data in H2: https://github.com/h2database/h2database/blob/master/h2/src/test/org/h2/test/scripts/datatypes/json.sql
+  (fn [expr]
+    (q/by-driver-class-name (fn [cn]
+                              (case cn
+                                "org.h2.Driver" (q/concat0 ["CAST("] expr [" AS VARCHAR)"])
+                                "org.postgresql.Driver" (q/concat0 expr ["::text"])
+                                expr)))))
+
+(defn edn-json-serialization-opts
+  "Returns an option map for [[db-event-source]] that can be used to store EDN event values in json columns.
+   Options are passed to `clojure.data.json/write-str` and `read-str`."
+  [& [opts]]
+  (let [json-opts (mapcat identity (dissoc opts :insert-modifier :select-modifier))]
+    {:serialize #(apply json/write-str % json-opts)
+     :deserialize #(apply json/read-str % json-opts)
+     :insert-modifier (or (:insert-modifier opts) insert-json-modifier)
+     :select-modifier (or (:select-modifier opts) select-json-modifier)
+     }))
 
 (defn db-event-source
   "Defines an event source from a database table. The table must have columns named `time` and `value`."

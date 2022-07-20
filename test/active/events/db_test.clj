@@ -59,6 +59,16 @@
 
           (is (= [ev1] (as-seq src))))))))
 
+(deftest db-event-source-json-test
+  (let [ev1 (core/event (Instant/ofEpochSecond 1000001) {"foo" [42 "bar"]})]
+    (with-h2 "db-event-source-json-test"
+      {"event" "json not null"}
+      (fn [db]
+        (let [src (db/db-event-source db "events" (db/edn-json-serialization-opts))]
+
+          (core/add-events! src [ev1])
+
+          (is (= [ev1] (as-seq src))))))))
 
 (deftest restict-test
   (let [ev1 (core/event (Instant/ofEpochSecond 1000001) "foo")]

@@ -7,7 +7,8 @@
 
   :dependencies [[org.clojure/clojure "1.10.1"]
                  [de.active-group/active-clojure "0.41.0"]
-                 [de.active-group/active-jdbc "0.2.0"]
-                 [com.github.seancorfield/next.jdbc "1.2.780"]]
+                 [de.active-group/active-jdbc "0.2.1"]
+                 [com.github.seancorfield/next.jdbc "1.2.780"]
+                 [org.clojure/data.json "2.4.0"]]
 
   :profiles {:dev {:dependencies [[com.h2database/h2 "2.0.202"]]}})
