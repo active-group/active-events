@@ -14,14 +14,14 @@
         patch-entity (fn [e p]
                        (update e :a concat (:a p)))]
     
-    (core/add-events! src [(core/event t1 (e/entity-reference :foo (e/create-entity {:a [:bar]})))
-                           (core/event t2 (e/entity-reference :foo (e/update-entity {:a [:baz]})))])
+    (core/add-events! src [(core/event t1 (e/entity-ref :foo (e/create-entity {:a [:bar]})))
+                           (core/event t2 (e/entity-ref :foo (e/update-entity {:a [:baz]})))])
 
     (is (= {:foo {:a [:bar :baz]}}
            (core/reduce-events src
                                (e/to-entities-map patch-entity))))
 
-    (core/add-events! src [(core/event t3 (e/entity-reference :foo (e/delete-entity)))])
+    (core/add-events! src [(core/event t3 (e/entity-ref :foo (e/delete-entity)))])
     (is (= {:foo [[:created t1 {:a [:bar]}]
                   [:updated t2 {:a [:baz]}]
                   [:deleted t3]]}

@@ -66,11 +66,11 @@
 (defn to-entity-history [created updated deleted]
   (on-time-and-value (to-entity-history* created updated deleted)))
 
-(define-tagged-type ::entity-reference
-  entity-reference entity-reference?
-  [entity-reference-id entity-reference-action])
+(define-tagged-type ::entity-ref
+  entity-ref entity-ref?
+  [entity-ref-id entity-ref-action])
 
-(defn- to-reference-map [f]
+(defn to-ref-map [f]
   (let [empty (f)]
     (fn
       ([] {})
@@ -78,18 +78,18 @@
        (let [time (core/event-time event)
              v (core/event-value event)]
          (cond
-           (entity-reference? v)
-           (let [id (entity-reference-id v)]
+           (entity-ref? v)
+           (let [id (entity-ref-id v)]
              (assoc res id
-                    (f (get res id empty) (core/event time (entity-reference-action v)))))
+                    (f (get res id empty) (core/event time (entity-ref-action v)))))
 
            :else res))))))
 
 (defn to-entities-map [apply-patch & [default]]
-  (to-reference-map (to-entity apply-patch default)))
+  (to-ref-map (to-entity apply-patch default)))
 
 (defn to-entities-history [created updated deleted]
-  (to-reference-map (to-entity-history created updated deleted)))
+  (to-ref-map (to-entity-history created updated deleted)))
 
 ;; ...same on domains (multiple kinds) of entities?
 
