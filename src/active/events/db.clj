@@ -35,13 +35,14 @@
                 (let [opts (db-event-source-opts this)
                       additional-columns (or (:additional-columns opts) {})
                       auto-time? (:auto-time? opts)
-                      columns (vec (concat (cond-> ["event"]
-                                             (not auto-time?) (conj "time"))
+                      value-col (get opts :value-column "event")
+                      time-col (get opts :time-column "time")
+                      columns (vec (concat (cond-> [value-col]
+                                             (not auto-time?) (conj time-col))
                                            (keys additional-columns)))
                       serialize (or (:serialize opts) identity)
                       insert-modifier (or (:insert-modifier opts) identity)]
 
-                  ;; FIXME: quoting opts columns names, table? Allow to change column names? Opts in general?
                   (let [insert-stmt (q/concat [(str "INSERT INTO " (db-event-source-table this) "(" (string/join ", " columns) ")")]
                                               ["VALUES ("]
                                               (insert-modifier ["?"]) ;; first must be the event value column
@@ -55,11 +56,13 @@
                                            events)]
                     (jdbc/execute-batch! (db-event-source-db this) insert-stmt
                                          param-groups
-                                         ;; ...opts, TODO: batch-size etc.
-                                         ))))
+                                         (:add-options opts)))))
   (-get-events [this since]
                (let [opts (db-event-source-opts this)
-                     condition (sql/and (if since ["time > ?" since] ["1=1"]) (or (:where opts) ["1=1"]))
+                     value-col (get opts :value-column "event")
+                     time-col (get opts :time-column "time")
+                     
+                     condition (sql/and (if since (q/concat [time-col] ["> ?" since]) ["1=1"]) (or (:where opts) ["1=1"]))
                      order (or (:order opts) "ASC")
                      limit (:limit opts)
                      deserialize (or (:deserialize opts) identity)
@@ -67,16 +70,15 @@
                      
                      select-stmt
                      (q/concat ["SELECT"]
-                               ["time,"]
-                               (select-modifier ["event"])
+                               (q/concat0 [time-col] [","])
+                               (select-modifier [value-col])
                                [(str "FROM " (db-event-source-table this))]
 
                                (q/concat [(str "WHERE")] condition)
-                               [(str "ORDER BY time " order)]
+                               [(str "ORDER BY " time-col " " order)]
                                (or limit q/empty))
                      
-                     ;; FIXME: quoting opts? Allow to change column names? Opts in general?
-                     conf (assoc {}
+                     conf (assoc (:get-options opts)
                                  :builder-fn next-rs/as-unqualified-arrays)]
                  (->> (jdbc/plan db select-stmt conf)
                       (r/map (partial db-event deserialize))))))
@@ -115,17 +117,22 @@
      }))
 
 (defn db-event-source
-  "Defines an event source from a database table. The table must have columns named `time` and `value`."
-  [db table & [opts]]
-  ;; opts:
-  ;; :additional-columns  map {column => (fn [event-value] ...) }
-  ;; :where  sql fragment like ["x = ?" 42]
-  ;; :order  "ASC" (default) or "DESC"
-  ;; :limit  sql fragment added to end of select statement.
-  ;; :serialize  convert event value to a db parameter (defaults to identity)
-  ;; :deserialize  convert event from from a db result (defaults to identity)
-  ;; :auto-time?  ignore event time when adding events, assuming the database has a DEFAULT for that column.
+  "Defines an event source from a database table.
+
+  Options are:
   
+  :additional-columns  map {column => (fn [event-value] ...) }
+  :where  sql fragment like [\"x = ?\" 42]
+  :order  \"ASC\" (default) or \"DESC\"
+  :limit  sql fragment added to end of select statement.
+  :serialize  convert event value to a db parameter (defaults to identity)
+  :deserialize  convert event from from a db result (defaults to identity)
+  :auto-time?  ignore event time when adding events, assuming the database has a DEFAULT for that column.
+  :value-column, :time-column  override defaults (\"event\" and \"time\") for the column names
+  :get-options  next-jdbc opts for 'plan'
+  :add-options  next-jdbc opts for 'execute-batch'
+  "
+  [db table & [opts]]
   (make-db-event-source db table opts))
 
 (defn add-column
