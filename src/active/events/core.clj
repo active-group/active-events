@@ -121,10 +121,13 @@
    (let [last (atom [init init-time])]
      (fn []
        (let [start @last
-             [res last-ev] (reduce-events-since src (second start)
-                                                (fn [res ev]
-                                                  [(f res ev) ev])
-                                                [(first start) nil])]
+             last-ev-a (atom nil)
+             res (reduce-events-since src (second start)
+                                      (fn [res ev]
+                                        (reset! last-ev-a ev)
+                                        (f res ev))
+                                      (first start))
+             last-ev @last-ev-a]
          (compare-and-set! last start [res (when (some? last-ev) (event-time last-ev))])
          res))))
   ([src f init]
