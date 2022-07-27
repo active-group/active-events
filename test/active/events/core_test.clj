@@ -6,14 +6,6 @@
 (defn as-seq [src]
   (core/reduce-events src conj []))
 
-(deftest static-event-source-test
-  (let [ev1 (core/event (Instant/ofEpochSecond 1000001)
-                        "foo")
-        ev2 (core/event (Instant/ofEpochSecond 1000002)
-                        "bar")]
-
-    (is (= [ev1 ev2] (as-seq (core/static-event-source [ev1 ev2]))))))
-
 (deftest memory-event-source-test
   (let [ev1 (core/event (Instant/ofEpochSecond 1000001)
                         "foo")
@@ -51,7 +43,8 @@
         ev2 (core/event (Instant/ofEpochSecond 1000002)
                         :bar)]
     
-    (let [src (-> (core/static-event-source [ev1 ev2])
+    (let [src (-> (core/new-memory-event-source)
+                  (core/add-events! [ev1 ev2])
                   (core/filtered-event-source
                    (fn [ev]
                      (= :foo (core/event-value ev)))))]

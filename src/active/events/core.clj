@@ -50,37 +50,6 @@
   []
   (make-memory-event-source (atom [])))
 
-(define-record-type ^:private StaticEventSource
-  make-static-event-source
-  static-event-source?
-  [events static-event-source-events]
-  
-  EventSource
-  (-add-events! [this events] (throw (ex-info "Cannot add events to a static event source." {})))
-  (-get-events [this] (static-event-source-events this)))
-
-(defn static-event-source
-  "Returns an event source that contains just the given events. Adding
-  events to it throws an exception."
-  [events]
-  (assert (= events (sort-by event-time events)))
-  (make-static-event-source events))
-
-
-#_(defn combine-event-sources "Collects events from multiple sources. Insertions are redirected to the last event source." [src1 & more]
-  ;; TODO maybe just: prepend-events
-  
-  (let [all (cons src1 more)
-        fin (last all)]
-    (event-source (fn [events]
-                    ((event-source-insert-fn fin) events))
-                  (fn []
-                    ;; Note: not super efficient to concat and sort in memory... but what can you do?
-                    ;; TODO: if sources are event sources (on the same db), we could merge them into a single one (with combined where clauses)
-                    ;; TODO: option to guarantee order; skipping the in-memory source if sources are old to young
-                    (-> (apply concat ((apply juxt (map event-source-get-fn src1))))
-                        (sort-by time-sort))))))
-
 (define-record-type ^:private MapValuesEventSource
   make-map-values-event-source
   map-values-event-source?
