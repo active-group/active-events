@@ -1,4 +1,4 @@
-(defproject de.active-group/active-events "0.1.1-SNAPSHOT"
+(defproject de.active-group/active-events "1.0.0"
   :description "A library for event sourcing."
   :url "http://github.com/active-group/active-events"
   
