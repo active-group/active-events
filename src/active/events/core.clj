@@ -111,18 +111,22 @@
   that were already contained in it before.
 
   Note that if no `init` value is given, then `f` should return an
-  'empty' value when called with no arguments."
+  'empty' value when called with no arguments.
+
+  The returned function is thread-safe, but if it is called in
+  multiple threads in parallel, some events might be processed in more
+  than one thread.
+  "
   ([src f init init-time]
-   (let [last-time (atom init-time)
-         last (atom init)]
+   (let [last (atom [init init-time])]
      (fn []
-       (reduce-events-since src @last-time
-                            (fn [res ev]
-                              (let [res (f res ev)]
-                                (reset! last res)
-                                (reset! last-time (event-time ev))
-                                res))
-                            @last))))
+       (let [start @last
+             [res last-ev] (reduce-events-since src (second start)
+                                                (fn [res ev]
+                                                  [(f res ev) ev])
+                                                [(first start) nil])]
+         (compare-and-set! last start [res (when (some? last-ev) (event-time last-ev))])
+         res))))
   ([src f init]
    (reduce-events-memoized src f init nil))
   ([src f]
