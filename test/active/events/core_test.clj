@@ -70,5 +70,10 @@
 
       (core/add-events! src [ev2])
       (read!)
-      (is (= [ev1 ev2] @called))))
-  )
+      (is (= [ev1 ev2] @called)))))
+
+(deftest juxt-reducers-test
+  (is (= [[:a :b] '(:b :a)]
+         (reduce (core/juxt-reducers [conj #(cons %2 %1)])
+                 [[] nil]
+                 [:a :b]))))

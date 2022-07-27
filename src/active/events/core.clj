@@ -128,6 +128,17 @@
   ([src f]
    (reduce-events-memoized src f (f))))
 
+(defn juxt-reducers
+  "Combines multiple reducing functions into a single one, that reduces
+  events to a vector of their results."
+  [reducers]
+  (fn
+    ([] (mapv (fn [f] (f)) reducers))
+    ([res ev] (mapv (fn [res-1 f]
+                      (f res-1 ev))
+                    res
+                    reducers))))
+
 (defn add-events!
   "Adds all the given events to `src`."
   [src events]
