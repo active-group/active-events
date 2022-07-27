@@ -102,7 +102,9 @@
   "Returns a thunk that will retrieve all events from `src` when called
   and reduce them into a different form. When the thunk is called
   again, it will reduce once events with a younger timestamp than the
-  last event seen before.
+  last event seen before. If you pass `init-time` the first call will
+  reduce only over the events younger than that time, which enables
+  you to start with a snapshotted value.
 
   Note that in order to use this, you must make sure that you only add
   events to the events source that have a younger timestamp than all
@@ -110,9 +112,8 @@
 
   Note that if no `init` value is given, then `f` should return an
   'empty' value when called with no arguments."
-  ([src f init]
-   ;; Note: this is slightly different from clojure.core/reduce
-   (let [last-time (atom nil)
+  ([src f init init-time]
+   (let [last-time (atom init-time)
          last (atom init)]
      (fn []
        (reduce-events-since src @last-time
@@ -122,6 +123,8 @@
                                 (reset! last-time (event-time ev))
                                 res))
                             @last))))
+  ([src f init]
+   (reduce-events-memoized src f init nil))
   ([src f]
    (reduce-events-memoized src f (f))))
 
