@@ -32,16 +32,18 @@
 
   core/EventSource
   (-add-events! [this events]
-                (let [opts (db-event-source-opts this)
-                      additional-columns (or (:additional-columns opts) {})
-                      auto-time? (:auto-time? opts)
-                      value-col (get opts :value-column "event")
-                      time-col (get opts :time-column "time")
+                (let [{additional-columns :additional-columns
+                       auto-time? :auto-time?
+                       value-col :value-column
+                       time-col :time-column
+                       serialize :serialize
+                       insert-modifier :insert-modifier
+                       insert-options :insert-options
+                       } (db-event-source-opts this)
+                      
                       columns (vec (concat (cond-> [value-col]
                                              (not auto-time?) (conj time-col))
-                                           (keys additional-columns)))
-                      serialize (or (:serialize opts) identity)
-                      insert-modifier (or (:insert-modifier opts) identity)]
+                                           (keys additional-columns)))]
 
                   (let [insert-stmt (q/concat [(str "INSERT INTO " (db-event-source-table this) "(" (string/join ", " columns) ")")]
                                               ["VALUES ("]
@@ -56,17 +58,20 @@
                                            events)]
                     (jdbc/execute-batch! (db-event-source-db this) insert-stmt
                                          param-groups
-                                         (:add-options opts)))))
+                                         insert-options))))
   (-get-events [this since]
-               (let [opts (db-event-source-opts this)
-                     value-col (get opts :value-column "event")
-                     time-col (get opts :time-column "time")
+               (let [{value-col :value-column
+                      time-col :time-column
+                      where :where
+                      order :order
+                      limit :limit
+                      deserialize :deserialize
+                      select-modifier :select-modifier
+                      select-options :select-options}
+                     (db-event-source-opts this)
                      
-                     condition (sql/and (if since (q/concat [time-col] ["> ?" since]) ["1=1"]) (or (:where opts) ["1=1"]))
-                     order (or (:order opts) "ASC")
-                     limit (:limit opts)
-                     deserialize (or (:deserialize opts) identity)
-                     select-modifier (or (:select-modifier opts) identity)
+                     condition (cond-> (if since (q/concat [time-col] ["> ?" since]) ["1=1"])
+                                 (some? where) (sql/and where))
                      
                      select-stmt
                      (q/concat ["SELECT"]
@@ -76,9 +81,9 @@
 
                                (q/concat [(str "WHERE")] condition)
                                [(str "ORDER BY " time-col " " order)]
-                               (or limit q/empty))
+                               limit)
                      
-                     conf (assoc (:get-options opts)
+                     conf (assoc select-options
                                  :builder-fn next-rs/as-unqualified-arrays)]
                  (->> (jdbc/plan db select-stmt conf)
                       (r/map (partial db-event deserialize))))))
@@ -116,6 +121,21 @@
      :select-modifier (or (:select-modifier opts) select-json-modifier)
      }))
 
+(def ^:private default-opts
+  {:additional-columns {}
+   :where nil
+   :order "ASC"
+   :limit q/empty
+   :serialize identity
+   :deserialize identity
+   :auto-time? false
+   :value-column "event" ;; 'value' is often a reserved word
+   :time-column "time"
+   :select-options nil
+   :insert-options nil
+   :insert-modifier identity
+   :select-modifier identity})
+
 (defn db-event-source
   "Defines an event source from a database table.
 
@@ -129,11 +149,11 @@
   :deserialize  convert event from from a db result (defaults to identity)
   :auto-time?  ignore event time when adding events, assuming the database has a DEFAULT for that column.
   :value-column, :time-column  override defaults (\"event\" and \"time\") for the column names
-  :get-options  next-jdbc opts for 'plan'
-  :add-options  next-jdbc opts for 'execute-batch'
+  :select-options  next-jdbc opts for 'plan'
+  :insert-options  next-jdbc opts for 'execute-batch'
   "
   [db table & [opts]]
-  (make-db-event-source db table opts))
+  (make-db-event-source db table (merge default-opts opts)))
 
 (defn add-column
   "When events are added then add the given column to the INSERT statement, and set its value to `(f event)`."
