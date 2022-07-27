@@ -11,6 +11,9 @@
 (defn as-seq [src]
   (core/reduce-events src conj []))
 
+(defn as-seq-since [src since]
+  (core/reduce-events-since src since conj []))
+
 (defn with-h2
   ([name f]
    (with-h2 name {} f))
@@ -99,3 +102,14 @@
 
           (core/add-events! src [ev2])
           (is (= [ev2] (as-seq src))))))))
+
+(deftest db-reduce-events-since-test
+  (let [ev1 (core/event (Instant/ofEpochSecond 1000001) "foo")
+        ev2 (core/event (Instant/ofEpochSecond 1000002) "bar")]
+    (with-h2 "reduce-events-since-test"
+      (fn [db]
+        (let [src (-> (db/db-event-source db "events")
+                      (db/latest-only))]
+
+          (core/add-events! src [ev1 ev2])
+          (is (= [ev2] (as-seq-since src (Instant/ofEpochSecond 1000001)))))))))

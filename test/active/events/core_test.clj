@@ -50,3 +50,25 @@
                      (= :foo (core/event-value ev)))))]
 
       (is (= [ev1] (as-seq src))))))
+
+(deftest reduce-events-memoized-test
+  (let [ev1 (core/event (Instant/ofEpochSecond 1000001)
+                        "foo")
+        ev2 (core/event (Instant/ofEpochSecond 1000002)
+                        "bar")]
+    
+    (let [src (core/new-memory-event-source)
+          called (atom [])
+          read! (core/reduce-events-memoized src (fn [res ev]
+                                                   (swap! called conj ev)
+                                                   (conj res ev))
+                                             [])]
+      (core/add-events! src [ev1])
+      (read!)
+      (is (= [ev1] @called))
+      
+
+      (core/add-events! src [ev2])
+      (read!)
+      (is (= [ev1 ev2] @called))))
+  )

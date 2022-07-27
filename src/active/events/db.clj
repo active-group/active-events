@@ -57,21 +57,21 @@
                                          param-groups
                                          ;; ...opts, TODO: batch-size etc.
                                          ))))
-  (-get-events [this]
+  (-get-events [this since]
                (let [opts (db-event-source-opts this)
-                     condition (:where opts)
+                     condition (sql/and (if since ["time > ?" since] ["1=1"]) (or (:where opts) ["1=1"]))
                      order (or (:order opts) "ASC")
                      limit (:limit opts)
                      deserialize (or (:deserialize opts) identity)
                      select-modifier (or (:select-modifier opts) identity)
                      
-                     select-stmt ;; ...should be cached for high performance
+                     select-stmt
                      (q/concat ["SELECT"]
-                               ["time, "]
+                               ["time,"]
                                (select-modifier ["event"])
                                [(str "FROM " (db-event-source-table this))]
-                               
-                               (if condition (q/concat [(str "WHERE")] condition) q/empty)
+
+                               (q/concat [(str "WHERE")] condition)
                                [(str "ORDER BY time " order)]
                                (or limit q/empty))
                      
